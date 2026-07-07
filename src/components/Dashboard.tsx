@@ -8,16 +8,18 @@ import { getLeadStatus, formatPhone, formatRelativeDate, getWhatsAppLink, getCal
 
 interface DashboardProps {
   leads: Lead[];
+  totalGeralCount?: number;
   onSelectLead: (lead: Lead) => void;
   currentTime: string;
 }
 
-export default function Dashboard({ leads, onSelectLead, currentTime }: DashboardProps) {
+export default function Dashboard({ leads, totalGeralCount, onSelectLead, currentTime }: DashboardProps) {
   const now = new Date(currentTime);
   const todayStr = now.toISOString().split("T")[0]; // YYYY-MM-DD
 
   // 1. Calculate Metrics
   const totalLeads = leads.length;
+  const showGeralBadge = typeof totalGeralCount === "number" && totalGeralCount !== totalLeads;
 
   // Contacted Today: dataUltimoContato is today (same date)
   const contatadosHoje = leads.filter(l => {
@@ -69,15 +71,21 @@ export default function Dashboard({ leads, onSelectLead, currentTime }: Dashboar
       {/* 1. Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         
-        {/* Total Leads */}
+        {/* Total Leads (region-scoped, with general total badge) */}
         <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-sm flex items-center gap-4">
           <div className="p-3 bg-slate-800 text-slate-300 rounded-lg">
             <Users size={20} />
           </div>
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total de Leads</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              {showGeralBadge ? "Leads Nesta Região" : "Total de Leads"}
+            </p>
             <h4 className="text-2xl font-bold font-display text-white mt-0.5">{totalLeads}</h4>
-            <span className="text-[10px] text-slate-500">Na base ativa</span>
+            {showGeralBadge ? (
+              <span className="text-[10px] text-slate-500">de {totalGeralCount} na base geral</span>
+            ) : (
+              <span className="text-[10px] text-slate-500">Na base ativa</span>
+            )}
           </div>
         </div>
 
