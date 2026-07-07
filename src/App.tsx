@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Lead, StatusFunil, DashboardMetrics } from "./types";
 import { INITIAL_LEADS } from "./data/mockLeads";
 import { getLeadStatus } from "./utils";
@@ -83,7 +83,7 @@ function parseCSVToLeads(csvText: string): Lead[] {
 }
 import { 
   LayoutDashboard, Columns3, Database, Map, Bell, 
-  RotateCcw, Sparkles, User, Clock, Building2, Plus
+  RotateCcw, Sparkles, User, Clock, Building2, Plus, Filter, X
 } from "lucide-react";
 
 // Import custom components
@@ -96,10 +96,11 @@ import LeadModal from "./components/LeadModal";
 import AddLeadModal from "./components/AddLeadModal";
 
 const LOCAL_STORAGE_KEY = "b2b_crm_active_leads";
+const REGION_FILTER_KEY = "b2b_crm_region_filter";
 
-// TODO: cole aqui o link CSV publicado da sua planilha do Google Sheets
+// Cole aqui o link CSV publicado da sua planilha do Google Sheets
 // Deve terminar em: /pub?output=csv
-const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9pOAGYf5ZCvVzkie1WK8bD7C9WY8WwlC3ozDkYBZPtvev3OQ730jtYEy8GoJwZRPwZJP7R16y8T2b/pub?output=csv";
+const CSV_URL = "[LINK_CSV_PUBLICADO]";
 
 export default function App() {
   // 1. Core Leads State
@@ -108,6 +109,11 @@ export default function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "kanban" | "list" | "map" | "alerts">("dashboard");
   const [isLoadingLeads, setIsLoadingLeads] = useState<boolean>(true);
+
+  // 1b. Region Filter State (Estado / Cidade) - persisted so you can keep working
+  // on the same slice of the base across sessions.
+  const [regionUf, setRegionUf] = useState<string>("");
+  const [regionCity, setRegionCity] = useState<string>("");
   
   // 2. Operational Live Time State
   const [currentTime, setCurrentTime] = useState<string>(new Date().toISOString());
@@ -144,7 +150,7 @@ export default function App() {
 
       if (sheetLeads.length > 0) {
         // Usa um Set para checagem O(1) em vez de percorrer o array inteiro
-        // a cada lead (evita travamento com bases grandes, ex: 35 mil leads).
+        // a cada lead (evita travamento com bases grandes, ex: 35-40 mil leads).
         const existingCnpjs = new Set(localLeads.map((l) => l.cnpj));
         const newFromSheet = sheetLeads.filter((sl) => !existingCnpjs.has(sl.cnpj));
         const mergedLeads = [...localLeads, ...newFromSheet];
@@ -154,9 +160,6 @@ export default function App() {
         try {
           localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(mergedLeads));
         } catch (err) {
-          // Bases muito grandes podem estourar o limite do localStorage (~5-10MB).
-          // Nesse caso, seguimos normalmente sem cache local; os dados serão
-          // buscados da planilha novamente na próxima vez que a página abrir.
           console.warn("Base muito grande para localStorage, seguindo sem cache local:", err);
         }
       } else if (localLeads.length > 0) {
@@ -169,7 +172,24 @@ export default function App() {
     };
 
     loadLeads();
+
+    // Load saved region filter
+    const savedRegion = localStorage.getItem(REGION_FILTER_KEY);
+    if (savedRegion) {
+      try {
+        const parsed = JSON.parse(savedRegion);
+        setRegionUf(parsed.uf || "");
+        setRegionCity(parsed.city || "");
+      } catch (err) {
+        console.error("Error reading region filter from localStorage:", err);
+      }
+    }
   }, []);
+
+  // 3b. Persist region filter whenever it changes
+  useEffect(() => {
+    localStorage.setItem(REGION_FILTER_KEY, JSON.stringify({ uf: regionUf, city: regionCity }));
+  }, [regionUf, regionCity]);
 
   // 4. Save Leads state to localStorage whenever it changes
   const saveLeadsToStorage = (updatedLeads: Lead[]) => {
@@ -188,6 +208,48 @@ export default function App() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // 5b. Region filter options, computed from the FULL base (not the filtered slice),
+  // so you can always pick a new region even while currently filtered.
+  const regionOptions = useMemo(() => {
+    const ufsSet = new Set<string>();
+    leads.forEach((l) => {
+      if (l.uf) ufsSet.add(l.uf);
+    });
+    const ufs = Array.from(ufsSet).sort();
+
+    const citiesSet = new Set<string>();
+    leads.forEach((l) => {
+      if (!regionUf || l.uf === regionUf) {
+        if (l.municipio) citiesSet.add(l.municipio);
+      }
+    });
+    const cities = Array.from(citiesSet).sort();
+
+    return { ufs, cities };
+  }, [leads, regionUf]);
+
+  // 5c. The working slice of leads, filtered by the selected region.
+  // This is what feeds Kanban, Lista and Mapa, so they never have to render
+  // the entire 30k+ base at once.
+  const regionFilteredLeads = useMemo(() => {
+    if (!regionUf && !regionCity) return leads;
+    return leads.filter((l) => {
+      if (regionUf && l.uf !== regionUf) return false;
+      if (regionCity && l.municipio !== regionCity) return false;
+      return true;
+    });
+  }, [leads, regionUf, regionCity]);
+
+  const handleRegionUfChange = (value: string) => {
+    setRegionUf(value);
+    setRegionCity(""); // reset city when state changes
+  };
+
+  const handleClearRegionFilter = () => {
+    setRegionUf("");
+    setRegionCity("");
+  };
 
   // 6. Action: Add a brand new Lead
   const handleAddLead = (newLead: Lead) => {
@@ -274,10 +336,13 @@ export default function App() {
     }
   };
 
-  // 10. Calculate Alert counts for header tab badge
-  const overdueAlertsCount = leads.filter((l) => {
+  // 10. Calculate Alert counts for header tab badge (based on the region-filtered
+  // working set, since that's what you're actively acting on)
+  const overdueAlertsCount = regionFilteredLeads.filter((l) => {
     return getLeadStatus(l, currentTime) === "red";
   }).length;
+
+  const hasRegionFilter = !!(regionUf || regionCity);
 
   return (
     <div id="crm-app-root" className="flex h-screen w-screen bg-slate-950 font-sans text-slate-100 overflow-hidden antialiased">
@@ -467,6 +532,59 @@ export default function App() {
           </div>
         </header>
 
+        {/* Region Filter Bar */}
+        <div className="px-8 pt-4 shrink-0">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 uppercase">
+              <Filter size={14} className="text-blue-400" />
+              Trabalhando na Região
+            </div>
+
+            <select
+              value={regionUf}
+              onChange={(e) => handleRegionUfChange(e.target.value)}
+              className="text-xs bg-slate-800 border border-slate-700 text-slate-100 hover:border-slate-600 rounded-lg p-2 outline-none transition-colors"
+            >
+              <option value="">Todos os Estados</option>
+              {regionOptions.ufs.map((uf) => (
+                <option key={uf} value={uf}>Estado: {uf}</option>
+              ))}
+            </select>
+
+            <select
+              value={regionCity}
+              onChange={(e) => setRegionCity(e.target.value)}
+              className="text-xs bg-slate-800 border border-slate-700 text-slate-100 hover:border-slate-600 rounded-lg p-2 outline-none transition-colors"
+            >
+              <option value="">Todas as Cidades</option>
+              {regionOptions.cities.map((city) => (
+                <option key={city} value={city}>{city}</option>
+              ))}
+            </select>
+
+            {hasRegionFilter && (
+              <button
+                onClick={handleClearRegionFilter}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-700 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <X size={12} />
+                Limpar Região
+              </button>
+            )}
+
+            <div className="ml-auto flex items-center gap-3 text-xs font-mono">
+              <span className="text-slate-400">
+                Base geral: <span className="text-slate-200 font-bold">{leads.length}</span>
+              </span>
+              {hasRegionFilter && (
+                <span className="text-blue-300 bg-blue-500/10 border border-blue-900/30 px-2 py-1 rounded-lg font-bold">
+                  Nesta região: {regionFilteredLeads.length}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Loading indicator for large datasets */}
         {isLoadingLeads && (
           <div className="px-8 pt-4">
@@ -481,7 +599,8 @@ export default function App() {
         <div className="flex-1 p-8 overflow-y-auto flex flex-col gap-6 min-h-0 bg-slate-950">
           {activeTab === "dashboard" && (
             <Dashboard 
-              leads={leads} 
+              leads={regionFilteredLeads} 
+              totalGeralCount={leads.length}
               onSelectLead={setSelectedLead} 
               currentTime={currentTime} 
             />
@@ -489,7 +608,7 @@ export default function App() {
 
           {activeTab === "kanban" && (
             <KanbanBoard 
-              leads={leads} 
+              leads={regionFilteredLeads} 
               onMoveLead={handleMoveLead} 
               onSelectLead={setSelectedLead} 
               currentTime={currentTime} 
@@ -498,7 +617,7 @@ export default function App() {
 
           {activeTab === "list" && (
             <LeadsList 
-              leads={leads} 
+              leads={regionFilteredLeads} 
               onSelectLead={setSelectedLead} 
               onOpenAddModal={() => setIsAddModalOpen(true)} 
               currentTime={currentTime} 
@@ -507,7 +626,7 @@ export default function App() {
 
           {activeTab === "map" && (
             <ProspectMap 
-              leads={leads} 
+              leads={regionFilteredLeads} 
               onSelectLead={setSelectedLead} 
               currentTime={currentTime} 
             />
@@ -515,7 +634,7 @@ export default function App() {
 
           {activeTab === "alerts" && (
             <NotificationCenter 
-              leads={leads} 
+              leads={regionFilteredLeads} 
               onSelectLead={setSelectedLead} 
               currentTime={currentTime} 
             />
