@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Lead, StatusFunil } from "../types";
 import { 
   Search, Filter, Plus, FileSpreadsheet, MapPin, Phone, 
-  MessageSquare, Mail, AlertCircle, Calendar, ArrowUpDown, RefreshCw 
+  MessageSquare, Mail, AlertCircle, Calendar, ArrowUpDown, RefreshCw,
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 import { formatCNPJ, formatPhone, getLeadStatus, formatRelativeDate, getWhatsAppLink, getCallLink, getMailtoLink } from "../utils";
 
@@ -16,6 +17,8 @@ interface LeadsListProps {
 type SortField = "nome" | "statusFunil" | "municipio" | "dataProximoContato";
 type SortOrder = "asc" | "desc";
 
+const PAGE_SIZE = 100;
+
 export default function LeadsList({ leads, onSelectLead, onOpenAddModal, currentTime }: LeadsListProps) {
   // 1. Filter States
   const [searchQuery, setSearchQuery] = useState("");
@@ -27,6 +30,9 @@ export default function LeadsList({ leads, onSelectLead, onOpenAddModal, current
   // 2. Sort States
   const [sortField, setSortField] = useState<SortField>("nome");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
+
+  // 2b. Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
 
   // 3. Clear Filters Action
   const handleResetFilters = () => {
@@ -120,6 +126,26 @@ export default function LeadsList({ leads, onSelectLead, onOpenAddModal, current
 
     return result;
   }, [leads, searchQuery, selectedUf, selectedCity, selectedCnae, selectedStatus, sortField, sortOrder]);
+
+  // 6b. Reset to page 1 whenever filters/sort/base change, so you never land
+  // on an empty page after narrowing a filter.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [leads, searchQuery, selectedUf, selectedCity, selectedCnae, selectedStatus, sortField, sortOrder]);
+
+  // 6c. Paginate: only render up to PAGE_SIZE rows at a time. This is what
+  // keeps the table fast even when the underlying base has thousands of leads.
+  const totalPages = Math.max(1, Math.ceil(filteredLeads.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedLeads = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredLeads.slice(start, start + PAGE_SIZE);
+  }, [filteredLeads, safePage]);
+
+  const goToPage = (page: number) => {
+    const clamped = Math.min(Math.max(1, page), totalPages);
+    setCurrentPage(clamped);
+  };
 
   // Export base as JSON trigger
   const exportToJSON = () => {
@@ -291,7 +317,7 @@ export default function LeadsList({ leads, onSelectLead, onOpenAddModal, current
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-xs">
-              {filteredLeads.length === 0 ? (
+              {paginatedLeads.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-16 text-center">
                     <p className="text-sm text-slate-450 font-bold">Nenhum prospect comercial encontrado com os filtros selecionados.</p>
@@ -299,7 +325,7 @@ export default function LeadsList({ leads, onSelectLead, onOpenAddModal, current
                   </td>
                 </tr>
               ) : (
-                filteredLeads.map((lead) => {
+                paginatedLeads.map((lead) => {
                   const status = getLeadStatus(lead, currentTime);
                   const isOverdue = status === "red";
                   const isToday = status === "yellow";
@@ -425,10 +451,38 @@ export default function LeadsList({ leads, onSelectLead, onOpenAddModal, current
           </table>
         </div>
         
-        {/* Table summary stats */}
-        <div className="px-6 py-3 border-t border-slate-800 bg-slate-950/40 flex justify-between items-center text-xs text-slate-400 font-mono">
-          <span>Mostrando {filteredLeads.length} de {leads.length} prospects cadastrados</span>
-          <span>Base Ativa B2B</span>
+        {/* Table summary stats + Pagination */}
+        <div className="px-6 py-3 border-t border-slate-800 bg-slate-950/40 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-slate-400 font-mono">
+          <span>
+            Mostrando {paginatedLeads.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}
+            {"–"}
+            {Math.min(safePage * PAGE_SIZE, filteredLeads.length)} de {filteredLeads.length} prospects filtrados
+            {" "}(base atual: {leads.length})
+          </span>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => goToPage(safePage - 1)}
+                disabled={safePage <= 1}
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                title="Página anterior"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="text-slate-300 font-bold px-2">
+                Página {safePage} de {totalPages}
+              </span>
+              <button
+                onClick={() => goToPage(safePage + 1)}
+                disabled={safePage >= totalPages}
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                title="Próxima página"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
