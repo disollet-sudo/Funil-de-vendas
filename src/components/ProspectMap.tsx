@@ -9,10 +9,24 @@ interface ProspectMapProps {
   currentTime: string;
 }
 
+// Safety cap: rendering more markers than this at once starts to hurt
+// browser performance noticeably. Use the region filter (Estado/Cidade) in
+// the header to work with a smaller slice if you hit this limit.
+const MAX_MARKERS = 3000;
+
 export default function ProspectMap({ leads, onSelectLead, currentTime }: ProspectMapProps) {
   const mapContainerId = "leaflet-prospect-map";
   const mapRef = useRef<any>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+
+  // Truncate currentTime down to the minute. The map used to be rebuilt from
+  // scratch every second (since currentTime ticks every second), which is
+  // very expensive with lots of markers. Overdue/today status only needs to
+  // be accurate to the minute, so we only rebuild once a minute instead.
+  const currentTimeMinute = currentTime.slice(0, 16); // "YYYY-MM-DDTHH:MM"
+
+  const leadsToRender = leads.length > MAX_MARKERS ? leads.slice(0, MAX_MARKERS) : leads;
+  const isTruncated = leads.length > MAX_MARKERS;
 
   // 1. Setup global window bridge so Leaflet popups can trigger React state
   useEffect(() => {
@@ -46,7 +60,7 @@ export default function ProspectMap({ leads, onSelectLead, currentTime }: Prospe
     }
 
     // Determine Map bounds based on leads' coordinates, or fallback to South East Brazil
-    const validCoords = leads.map(l => [l.latLng.lat, l.latLng.lng]);
+    const validCoords = leadsToRender.map(l => [l.latLng.lat, l.latLng.lng]);
     const centerPoint: [number, number] = validCoords.length > 0 
       ? [-20.0, -48.0] // Centered generally in Brazil
       : [-23.5505, -46.6333]; // Sao Paulo
@@ -66,8 +80,8 @@ export default function ProspectMap({ leads, onSelectLead, currentTime }: Prospe
       maxZoom: 19
     }).addTo(map);
 
-    // Render Markers for each Lead
-    leads.forEach((lead) => {
+    // Render Markers for each Lead (capped to MAX_MARKERS for performance)
+    leadsToRender.forEach((lead) => {
       const status = getLeadStatus(lead, currentTime);
       
       // Determine glowing color theme based on stage / urgency status
@@ -154,7 +168,10 @@ export default function ProspectMap({ leads, onSelectLead, currentTime }: Prospe
         mapRef.current = null;
       }
     };
-  }, [leads, currentTime, mapLoaded]);
+    // NOTE: currentTimeMinute (not currentTime) is intentional here — it limits
+    // map rebuilds to once per minute instead of once per second, which matters
+    // a lot once you have hundreds/thousands of markers.
+  }, [leadsToRender, currentTimeMinute, mapLoaded]);
 
   // Handle manual map recalculate sizes
   const handleRecalculate = () => {
@@ -170,7 +187,7 @@ export default function ProspectMap({ leads, onSelectLead, currentTime }: Prospe
         <div className="flex gap-2 items-start text-xs text-slate-300 max-w-2xl">
           <Info size={16} className="text-blue-400 shrink-0 mt-0.5" />
           <div>
-            <span className="font-bold">Densidade Geográfica de Prospecção:</span> Este mapa renderiza todos os seus prospects com base em suas localizações corporativas reais. A cor indica a urgência do follow-up. Clique em qualquer marcador para ver informações rápidas e iniciar ações.
+            <span className="font-bold">Densidade Geográfica de Prospecção:</span> Este mapa renderiza seus prospects com base em suas localizações corporativas reais. A cor indica a urgência do follow-up. Clique em qualquer marcador para ver informações rápidas e iniciar ações.
           </div>
         </div>
 
@@ -183,6 +200,14 @@ export default function ProspectMap({ leads, onSelectLead, currentTime }: Prospe
           Centralizar Mapa
         </button>
       </div>
+
+      {/* Truncation warning for very large sets */}
+      {isTruncated && (
+        <div className="bg-amber-950/30 border border-amber-900/40 rounded-xl p-3 flex items-center gap-2 text-xs text-amber-200">
+          <AlertCircle size={14} className="shrink-0" />
+          Mostrando os primeiros {MAX_MARKERS} de {leads.length} leads no mapa (limite de performance). Use o filtro de região no topo para ver uma cidade/estado específico por completo.
+        </div>
+      )}
 
       {/* Map Element */}
       <div className="relative bg-slate-950 rounded-2xl border border-slate-800 shadow-sm overflow-hidden min-h-[500px]">
