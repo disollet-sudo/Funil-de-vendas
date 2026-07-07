@@ -5,7 +5,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    base: '/Vendas/',
+    base: '/Funil-de-vendas/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
