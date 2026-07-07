@@ -100,7 +100,7 @@ const REGION_FILTER_KEY = "b2b_crm_region_filter";
 
 // Cole aqui o link CSV publicado da sua planilha do Google Sheets
 // Deve terminar em: /pub?output=csv
-const CSV_URL = "[LINK_CSV_PUBLICADO]";
+const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9pOAGYf5ZCvVzkie1WK8bD7C9WY8WwlC3ozDkYBZPtvev3OQ730jtYEy8GoJwZRPwZJP7R16y8T2b/pub?output=csv";
 
 export default function App() {
   // 1. Core Leads State
