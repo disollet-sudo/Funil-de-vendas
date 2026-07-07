@@ -1,0 +1,6 @@
+{
+  "name": "B2B CRM & Funil de Vendas",
+  "description": "Sistema completo de CRM e Funil de Vendas Kanban para prospecção ativa B2B com indicadores de contato, filtros avançados e mapa de clientes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

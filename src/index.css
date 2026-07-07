@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+}
+
+/* Custom Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Glowing Map Marker Animations */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.33);
+  }
+  80%, 100% {
+    opacity: 0;
+  }
+}
+
+.map-marker-pulse {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.map-marker-pulse::before {
+  content: '';
+  position: absolute;
+  display: block;
+  width: 300%;
+  height: 300%;
+  box-sizing: border-box;
+  border-radius: 45px;
+  background-color: inherit;
+  animation: pulse-ring 1.25s cubic-bezier(0.215, 0.610, 0.355, 1) infinite;
+}
+
+/* Smooth active calling ringing animations */
+@keyframes phone-ring {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(15deg); }
+  75% { transform: rotate(-15deg); }
+}
+.animate-phone-ring {
+  animation: phone-ring 0.5s ease-in-out infinite;
+}
