@@ -97,12 +97,17 @@ import AddLeadModal from "./components/AddLeadModal";
 
 const LOCAL_STORAGE_KEY = "b2b_crm_active_leads";
 
+// TODO: cole aqui o link CSV publicado da sua planilha do Google Sheets
+// Deve terminar em: /pub?output=csv
+const CSV_URL = "[LINK_CSV_PUBLICADO]";
+
 export default function App() {
   // 1. Core Leads State
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "kanban" | "list" | "map" | "alerts">("dashboard");
+  const [isLoadingLeads, setIsLoadingLeads] = useState<boolean>(true);
   
   // 2. Operational Live Time State
   const [currentTime, setCurrentTime] = useState<string>(new Date().toISOString());
@@ -110,6 +115,8 @@ export default function App() {
   // 3. Load Leads from localStorage and/or fetch from Google Sheets on mount
   useEffect(() => {
     const loadLeads = async () => {
+      setIsLoadingLeads(true);
+
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
       let localLeads: Lead[] = [];
       if (saved) {
@@ -120,10 +127,9 @@ export default function App() {
         }
       }
 
-      const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9pOAGYf5ZCvVzkie1WK8bD7C9WY8WwlC3ozDkYBZPtvev3OQ730jtYEy8GoJwZRPwZJP7R16y8T2b/pub?output=csv";
       let sheetLeads: Lead[] = [];
       try {
-        const response = await fetch(csvUrl);
+        const response = await fetch(CSV_URL);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -137,20 +143,29 @@ export default function App() {
       }
 
       if (sheetLeads.length > 0) {
-        const mergedLeads = [...localLeads];
-        for (const sheetLead of sheetLeads) {
-          const exists = mergedLeads.some((l) => l.cnpj === sheetLead.cnpj);
-          if (!exists) {
-            mergedLeads.push(sheetLead);
-          }
-        }
+        // Usa um Set para checagem O(1) em vez de percorrer o array inteiro
+        // a cada lead (evita travamento com bases grandes, ex: 35 mil leads).
+        const existingCnpjs = new Set(localLeads.map((l) => l.cnpj));
+        const newFromSheet = sheetLeads.filter((sl) => !existingCnpjs.has(sl.cnpj));
+        const mergedLeads = [...localLeads, ...newFromSheet];
+
         setLeads(mergedLeads);
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(mergedLeads));
+
+        try {
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(mergedLeads));
+        } catch (err) {
+          // Bases muito grandes podem estourar o limite do localStorage (~5-10MB).
+          // Nesse caso, seguimos normalmente sem cache local; os dados serão
+          // buscados da planilha novamente na próxima vez que a página abrir.
+          console.warn("Base muito grande para localStorage, seguindo sem cache local:", err);
+        }
       } else if (localLeads.length > 0) {
         setLeads(localLeads);
       } else {
         setLeads(INITIAL_LEADS);
       }
+
+      setIsLoadingLeads(false);
     };
 
     loadLeads();
@@ -159,7 +174,11 @@ export default function App() {
   // 4. Save Leads state to localStorage whenever it changes
   const saveLeadsToStorage = (updatedLeads: Lead[]) => {
     setLeads(updatedLeads);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedLeads));
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedLeads));
+    } catch (err) {
+      console.warn("Não foi possível salvar no localStorage (base muito grande):", err);
+    }
   };
 
   // 5. Setup Live Operational Clock
@@ -224,11 +243,11 @@ export default function App() {
   const handleResetToDemo = async () => {
     if (window.confirm("Deseja mesmo redefinir todos os dados comerciais para os leads da planilha do Google Sheets? Isso apagará suas alterações atuais.")) {
       localStorage.removeItem(LOCAL_STORAGE_KEY);
-      
-      const csvUrl = "[LINK_CSV_PUBLICADO]";
+      setIsLoadingLeads(true);
+
       let sheetLeads: Lead[] = [];
       try {
-        const response = await fetch(csvUrl);
+        const response = await fetch(CSV_URL);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -241,12 +260,17 @@ export default function App() {
       
       if (sheetLeads.length > 0) {
         setLeads(sheetLeads);
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(sheetLeads));
+        try {
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(sheetLeads));
+        } catch (err) {
+          console.warn("Base muito grande para localStorage, seguindo sem cache local:", err);
+        }
       } else {
         setLeads(INITIAL_LEADS);
       }
       setSelectedLead(null);
       setActiveTab("dashboard");
+      setIsLoadingLeads(false);
     }
   };
 
@@ -442,6 +466,16 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        {/* Loading indicator for large datasets */}
+        {isLoadingLeads && (
+          <div className="px-8 pt-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-3 text-xs text-slate-400 flex items-center gap-2">
+              <div className="h-3 w-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              Carregando leads da planilha, isso pode levar alguns segundos para bases grandes...
+            </div>
+          </div>
+        )}
 
         {/* Tab View Container */}
         <div className="flex-1 p-8 overflow-y-auto flex flex-col gap-6 min-h-0 bg-slate-950">
